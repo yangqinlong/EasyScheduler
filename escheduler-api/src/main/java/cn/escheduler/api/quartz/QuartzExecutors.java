@@ -19,10 +19,13 @@ package cn.escheduler.api.quartz;
 import cn.escheduler.common.Constants;
 import cn.escheduler.common.utils.JSONUtils;
 import cn.escheduler.dao.model.Schedule;
+import org.apache.commons.collections.IteratorUtils;
 import org.apache.commons.lang.StringUtils;
 import org.quartz.*;
 import org.quartz.impl.StdSchedulerFactory;
+import org.quartz.impl.calendar.BaseCalendar;
 import org.quartz.impl.matchers.GroupMatcher;
+import org.quartz.spi.OperableTrigger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -306,4 +309,71 @@ public class QuartzExecutors {
     return dataMap;
   }
 
+    /**
+     * check job is triggered or not
+     * @param jobName
+     * @param jobGroupName
+     * @return
+     */
+    public static boolean hasTrigger(String jobName,String jobGroupName){
+        try {
+            Trigger trigger =  scheduler.getTrigger(TriggerKey.triggerKey(jobName, jobGroupName));
+            if (null != trigger) {
+               return true;
+            }
+        } catch (SchedulerException e) {
+            logger.error(String.format("check job %s's trigger failed",jobName), e);
+        }
+        return false;
+    }
+
+
+    /**
+     * compute the job's fire times between startDate and endDate.
+     * @param jobName
+     * @param jobGroupName
+     * @param startDate
+     * @param endDate
+     * @return
+     */
+    public static Iterator<Date> computeFireTimesBetween(String jobName,String jobGroupName,
+                                                         Date startDate, Date endDate) {
+        LinkedList<Date> lst = new LinkedList();
+
+        OperableTrigger trigger = null;
+        try {
+            trigger = (OperableTrigger) scheduler.getTrigger(TriggerKey.triggerKey(jobName, jobGroupName));
+            if (null == trigger) {
+                return lst.iterator();
+            }
+            OperableTrigger t = (OperableTrigger) trigger.clone();
+            t.setStartTime(startDate);
+            t.setEndTime(endDate);
+
+            org.quartz.Calendar cal = new BaseCalendar();
+            t.computeFirstFireTime(cal);
+
+            while(true) {
+                Date d = t.getNextFireTime();
+                if (d == null) {
+                    break;
+                }
+
+                if (d.before(startDate)) {
+                    t.triggered(cal);
+                } else {
+                    if (d.after(endDate)) {
+                        break;
+                    }
+
+                    lst.add(d);
+                    t.triggered(cal);
+                }
+            }
+        } catch (SchedulerException e) {
+            logger.error(String.format("get job %s's trigger failed",jobName), e);
+        }
+
+        return lst.iterator();
+    }
 }

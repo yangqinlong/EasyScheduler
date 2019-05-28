@@ -16,6 +16,7 @@
  */
 package cn.escheduler.server.master.runner;
 
+import cn.escheduler.api.quartz.QuartzExecutors;
 import cn.escheduler.common.Constants;
 import cn.escheduler.common.enums.*;
 import cn.escheduler.common.graph.DAG;
@@ -61,7 +62,6 @@ public class MasterExecThread implements Runnable {
      * process instance
      */
     private ProcessInstance processInstance;
-
 
     /**
      *  runing TaskNode
@@ -171,8 +171,16 @@ public class MasterExecThread implements Runnable {
         processDao.saveProcessInstance(processInstance);
         Date scheduleDate = processInstance.getScheduleTime();
 
-        if(scheduleDate == null){
+        String jobName = QuartzExecutors.buildJobName(processInstance.getProcessDefinition().getId());
+        String jobGroupName = QuartzExecutors.buildJobGroupName(processInstance.getProcessDefinition().getProjectId());
+        boolean hasTrigger = QuartzExecutors.hasTrigger(jobName, jobGroupName);
+        Iterator<Date> dateIterator = QuartzExecutors.computeFireTimesBetween(jobName, jobGroupName, startDate, endDate);
+        if (!hasTrigger){
             scheduleDate = startDate;
+        } else if (hasTrigger && dateIterator.hasNext()) {
+            scheduleDate = dateIterator.next();
+        } else {
+            logger.info("process {} have no complement date!", processInstance.getId());
         }
 
         while(Stopper.isRunning()){
@@ -197,10 +205,18 @@ public class MasterExecThread implements Runnable {
                 break;
             }
 
-            //  current process instance sucess ，next execute
-            scheduleDate = DateUtils.getSomeDay(scheduleDate, 1);
-            if(scheduleDate.after(endDate)){
-                // all success
+            //  current process instance success ，next execute
+            if (!hasTrigger) {
+                scheduleDate = DateUtils.getSomeDay(scheduleDate, 1);
+
+                if(scheduleDate.after(endDate)){
+                    // all success
+                    logger.info("process {} complement completely!", processInstance.getId());
+                    break;
+                }
+            } else if (hasTrigger && dateIterator.hasNext()) {
+                scheduleDate = dateIterator.next();
+            } else {
                 logger.info("process {} complement completely!", processInstance.getId());
                 break;
             }
@@ -871,10 +887,7 @@ public class MasterExecThread implements Runnable {
         Date now = new Date();
         long runningTime =  DateUtils.diffMin(now, processInstance.getStartTime());
 
-        if(runningTime > processInstance.getTimeout()){
-            return true;
-        }
-        return false;
+        return runningTime > processInstance.getTimeout();
     }
 
     private boolean canSubmitTaskToQueue() {
