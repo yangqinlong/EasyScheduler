@@ -24,6 +24,8 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.LinkedList;
+import java.util.List;
 
 /**
  * date utils
@@ -146,6 +148,18 @@ public class DateUtils {
 		return calendar.getTime();
 	}
 
+	public static List<Date> getDateListBetweenTwoDates(Date startDate, Date endDate) {
+		List<Date> dateList = new LinkedList<>();
+		if (compare(startDate, endDate)) {
+			return dateList;
+		}
+		Date date = startDate;
+		while (!compare(date, endDate)) {
+			dateList.add(date);
+			date = getSomeDay(date, 1);
+		}
+		return dateList;
+	}
 	/**
      * compare two dates
 	 *

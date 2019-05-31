@@ -336,7 +336,7 @@ public class QuartzExecutors {
      * @param endDate
      * @return
      */
-    public static Iterator<Date> computeFireTimesBetween(String jobName,String jobGroupName,
+    public static List<Date> computeFireTimesBetween(String jobName,String jobGroupName,
                                                          Date startDate, Date endDate) {
         LinkedList<Date> lst = new LinkedList();
 
@@ -344,7 +344,7 @@ public class QuartzExecutors {
         try {
             trigger = (OperableTrigger) scheduler.getTrigger(TriggerKey.triggerKey(jobName, jobGroupName));
             if (null == trigger) {
-                return lst.iterator();
+                return lst;
             }
             OperableTrigger t = (OperableTrigger) trigger.clone();
             t.setStartTime(startDate);
@@ -374,6 +374,6 @@ public class QuartzExecutors {
             logger.error(String.format("get job %s's trigger failed",jobName), e);
         }
 
-        return lst.iterator();
+        return lst;
     }
 }

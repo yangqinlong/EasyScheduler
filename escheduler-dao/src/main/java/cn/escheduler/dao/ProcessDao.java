@@ -291,6 +291,15 @@ public class ProcessDao extends AbstractBaseDao {
     }
 
     /**
+     * find schedule list by definition id
+     * @param processDefinitionId
+     * @return
+     */
+    public List<Schedule> findScheduleListByProcessDefinitionId(int processDefinitionId){
+        return scheduleMapper.queryByProcessDefinitionId(processDefinitionId);
+    }
+
+    /**
      * delete work process instance by id
      * @param processInstanceId
      * @return

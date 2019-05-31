@@ -22,6 +22,7 @@ import org.junit.Test;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.List;
 
 public class DateUtilsTest {
 
@@ -53,5 +54,22 @@ public class DateUtilsTest {
         Assert.assertEquals(monday, monday1);
         Assert.assertEquals(sunday, sunday1);
 
+    }
+
+    @Test
+    public void testGetDateListBetweenTwoDates() {
+        Date d1 = DateUtils.stringToDate("2019-02-01 00:00:00");
+        Date d2 = DateUtils.stringToDate("2019-02-10 00:00:00");
+
+        List<Date> dateList = DateUtils.getDateListBetweenTwoDates(d1, d2);
+        Assert.assertEquals(10, dateList.size());
+        Assert.assertEquals("2019-02-01", DateUtils.format(dateList.get(0), "yyyy-MM-dd"));
+        Assert.assertEquals("2019-02-10", DateUtils.format(dateList.get(9), "yyyy-MM-dd"));
+
+
+        Date d3 = DateUtils.stringToDate("2019-03-01 00:00:00");
+        Date d4 = DateUtils.stringToDate("2019-02-10 00:00:00");
+        List<Date> dateList2 = DateUtils.getDateListBetweenTwoDates(d3, d4);
+        Assert.assertEquals(0, dateList2.size());
     }
 }

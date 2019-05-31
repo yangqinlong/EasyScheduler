@@ -29,6 +29,7 @@ import cn.escheduler.common.utils.*;
 import cn.escheduler.dao.DaoFactory;
 import cn.escheduler.dao.ProcessDao;
 import cn.escheduler.dao.model.ProcessInstance;
+import cn.escheduler.dao.model.Schedule;
 import cn.escheduler.dao.model.TaskInstance;
 import cn.escheduler.dao.utils.DagHelper;
 import cn.escheduler.server.utils.AlertManager;
@@ -163,25 +164,13 @@ public class MasterExecThread implements Runnable {
      * @throws Exception
      */
     private void executeComplementProcess() throws Exception {
-
         Map<String, String> cmdParam = JSONUtils.toMap(processInstance.getCommandParam());
 
         Date startDate = DateUtils.getScheduleDate(cmdParam.get(CMDPARAM_COMPLEMENT_DATA_START_DATE));
         Date endDate = DateUtils.getScheduleDate(cmdParam.get(CMDPARAM_COMPLEMENT_DATA_END_DATE));
         processDao.saveProcessInstance(processInstance);
-        Date scheduleDate = processInstance.getScheduleTime();
 
-        String jobName = QuartzExecutors.buildJobName(processInstance.getProcessDefinition().getId());
-        String jobGroupName = QuartzExecutors.buildJobGroupName(processInstance.getProcessDefinition().getProjectId());
-        boolean hasTrigger = QuartzExecutors.hasTrigger(jobName, jobGroupName);
-        Iterator<Date> dateIterator = QuartzExecutors.computeFireTimesBetween(jobName, jobGroupName, startDate, endDate);
-        if (!hasTrigger){
-            scheduleDate = startDate;
-        } else if (hasTrigger && dateIterator.hasNext()) {
-            scheduleDate = dateIterator.next();
-        } else {
-            logger.info("process {} have no complement date!", processInstance.getId());
-        }
+        Iterator<Date> dateIterator = this.getComplementDateIterator(startDate, endDate);
 
         while(Stopper.isRunning()){
             // prepare dag and other info
@@ -195,46 +184,22 @@ public class MasterExecThread implements Runnable {
                 return;
             }
 
-            // execute process ,waiting for end
-            runProcess();
-
-            // process instace failure ，no more complements
-            if(!processInstance.getState().typeIsSuccess()){
-                logger.info("process {} state {}, complement not completely!",
-                        processInstance.getId(), processInstance.getState());
-                break;
-            }
-
-            //  current process instance success ，next execute
-            if (!hasTrigger) {
-                scheduleDate = DateUtils.getSomeDay(scheduleDate, 1);
-
-                if(scheduleDate.after(endDate)){
-                    // all success
-                    logger.info("process {} complement completely!", processInstance.getId());
-                    break;
-                }
-            } else if (hasTrigger && dateIterator.hasNext()) {
-                scheduleDate = dateIterator.next();
-            } else {
+            if (!dateIterator.hasNext()){
                 logger.info("process {} complement completely!", processInstance.getId());
+                updateProcessInstanceState();
                 break;
             }
-
+            Date scheduleDate = dateIterator.next();
             logger.info("process {} start to complement {} data",
                     processInstance.getId(), DateUtils.dateToString(scheduleDate));
             // execute next process instance complement data
             processInstance.setScheduleTime(scheduleDate);
+
             if(cmdParam.containsKey(Constants.CMDPARAM_RECOVERY_START_NODE_STRING)){
                 cmdParam.remove(Constants.CMDPARAM_RECOVERY_START_NODE_STRING);
                 processInstance.setCommandParam(JSONUtils.toJson(cmdParam));
             }
 
-            List<TaskInstance> taskInstanceList = processDao.findValidTaskListByProcessId(processInstance.getId());
-            for(TaskInstance taskInstance : taskInstanceList){
-                taskInstance.setFlag(Flag.NO);
-                processDao.updateTaskInstance(taskInstance);
-            }
             processInstance.setState(ExecutionStatus.RUNNING_EXEUTION);
             processInstance.setGlobalParams(ParameterUtils.curingGlobalParams(
                     processInstance.getProcessDefinition().getGlobalParamMap(),
@@ -242,6 +207,22 @@ public class MasterExecThread implements Runnable {
                     CommandType.COMPLEMENT_DATA,processInstance.getScheduleTime()));
 
             processDao.saveProcessInstance(processInstance);
+
+            // execute process ,waiting for end
+            runProcess();
+
+            // process instance failure ，no more complements
+            if(!processInstance.getState().typeIsSuccess()){
+                logger.info("process {} state {}, complement not completely!",
+                        processInstance.getId(), processInstance.getState());
+                break;
+            }
+
+            List<TaskInstance> taskInstanceList = processDao.findValidTaskListByProcessId(processInstance.getId());
+            for(TaskInstance taskInstance : taskInstanceList){
+                taskInstance.setFlag(Flag.NO);
+                processDao.updateTaskInstance(taskInstance);
+            }
         }
 
         // flow end
@@ -249,6 +230,39 @@ public class MasterExecThread implements Runnable {
 
     }
 
+    /**
+     * get complement dates
+     * @param startDate
+     * @param endDate
+     * @return
+     * @throws Exception
+     */
+    private Iterator<Date> getComplementDateIterator(Date startDate, Date endDate){
+        List<Date> complementDateList = new LinkedList<>();
+        boolean hasTrigger = false;
+        List<Schedule> scheduleList = processDao.findScheduleListByProcessDefinitionId(processInstance.getProcessDefinitionId());
+        for (Schedule schedule: scheduleList) {
+            String jobName = QuartzExecutors.buildJobName(schedule.getId());
+            String jobGroupName = QuartzExecutors.buildJobGroupName(processInstance.getProcessDefinition().getProjectId());
+            hasTrigger = hasTrigger || QuartzExecutors.hasTrigger(jobName, jobGroupName);
+            if (hasTrigger){
+                complementDateList.addAll(QuartzExecutors.computeFireTimesBetween(jobName, jobGroupName, startDate, endDate));
+            }
+        }
+        List<Date> complementDates = complementDateList;
+        if (hasTrigger){
+            complementDates = new LinkedList<>(new HashSet<>(complementDateList));
+        }
+
+        if (hasTrigger && complementDates.size() == 0) {
+            logger.info("process {} have no complement date between {} and {} with crontab!", processInstance.getId(), startDate, endDate);
+        } else if (!hasTrigger) {
+            complementDates = DateUtils.getDateListBetweenTwoDates(startDate, endDate);
+        }
+
+        complementDates.sort(Date::compareTo);
+        return complementDates.iterator();
+    }
 
     /**
      * prepare process parameter
