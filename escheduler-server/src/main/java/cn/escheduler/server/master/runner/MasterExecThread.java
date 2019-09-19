@@ -252,15 +252,24 @@ public class MasterExecThread implements Runnable {
         List<Date> complementDates = complementDateList;
         if (hasTrigger){
             complementDates = new LinkedList<>(new HashSet<>(complementDateList));
-        }
+            if (complementDates.size() == 0) {
+                logger.info("process {} have no complement date between {} and {} with crontab!", processInstance.getId(), startDate, endDate);
+                return complementDates.iterator();
+            }
 
-        if (hasTrigger && complementDates.size() == 0) {
-            logger.info("process {} have no complement date between {} and {} with crontab!", processInstance.getId(), startDate, endDate);
-        } else if (!hasTrigger) {
+            //定时时间是6月1号，business_date是5月31日，所以取定时的前一天
+            List<Date> tmpDates = new LinkedList<>();
+            for (Date date : complementDates) {
+                tmpDates.add(DateUtils.getSomeDay(date, -1));
+            }
+            complementDates = tmpDates;
+        } else {
             complementDates = DateUtils.getDateListBetweenTwoDates(startDate, endDate);
         }
 
         complementDates.sort(Date::compareTo);
+
+
         return complementDates.iterator();
     }
 
